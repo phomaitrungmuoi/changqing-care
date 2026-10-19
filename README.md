@@ -20,3 +20,4 @@
 所有資料只存在使用中裝置的瀏覽器（localStorage），不會上傳到任何伺服器；唯一例外是你在「AI 分析」中主動按下 Claude 分析時，所選長者的照護資料會傳給 Anthropic。畫面上的長者皆為虛構示範資料，可按「重設為示範資料」還原。
 
 生命徵象的參考範圍僅作為畫面提示，不能取代醫療專業判斷。
+## Link: https://phomaitrungmuoi.github.io/changqing-care/
