@@ -134,16 +134,80 @@ function sampleData() {
       vitals: [V(1380, 130, 78, 36.8, 88, 93, '', 20), V(45, 136, 84, 36.9, 92, 92, '', 22)],
       moves: [M(300, 'B棟寢室'), M(260, '餐廳'), M(130, '浴室', '協助沐浴'), M(45, '醫護站', '血氧偏低，護理師評估中')],
     },
-  ].map(r => ({ id: uid(), ...r }));
+  ].concat(extraSamples()).map(r => ({ id: uid(), ...r }));
+}
+
+// 第二批示範長者（舊資料升級時也會補上）
+function extraSamples() {
+  const now = new Date();
+  const at = (minsAgo) => localDT(new Date(now - minsAgo * 6e4));
+  const M = (minsAgo, zone, note = '') => ({ id: uid(), at: at(minsAgo), zone, note });
+  const V = (minsAgo, sys, dia, temp, pulse, spo2, sugar = '', resp = '') => ({ id: uid(), at: at(minsAgo), sys, dia, temp, pulse, spo2, sugar, resp });
+  const y = now.getFullYear();
+  return [
+    {
+      name: '吳金龍', title: '吳爺爺', gender: '男', birthYear: y - 87, room: 'A107', status: 'active',
+      avatar: { skin: '#e6b48f', hair: '#ece8e3', style: 'bald', glasses: false, bg: '#efe8df', shirt: '#8a7b6c' },
+      conditions: ['腦中風後遺症（右側無力）', '吞嚥困難'], allergies: [], meds: ['Clopidogrel 75mg（早餐後）'],
+      mobility: '輪椅，轉位需一人協助', diet: '細碎飲食、液體需增稠', contact: '兒子 吳俊傑 0900-000-007', note: '進食時需坐正 90 度，餵食後保持坐姿 30 分鐘。',
+      vitals: [V(1420, 138, 84, 36.5, 76, 96), V(200, 134, 80, 36.6, 74, 96, '', 18)],
+      moves: [M(320, 'A棟寢室'), M(270, '餐廳', '協助餵食'), M(150, '復健室', '站立訓練'), M(50, '大廳', '看電視')],
+    },
+    {
+      name: '劉玉蘭', title: '劉奶奶', gender: '女', birthYear: y - 92, room: 'B207', status: 'rest',
+      avatar: { skin: '#f4d2b8', hair: '#f1eeea', style: 'bun', glasses: true, bg: '#e0ebf1', shirt: '#7d97ab' },
+      conditions: ['心臟衰竭', '退化性關節炎'], allergies: ['碘造影劑'], meds: ['利尿劑（早餐後）', '止痛貼片（每三天更換）'],
+      mobility: '臥床為主，每兩小時翻身', diet: '低鹽、限水 1200 ml/日', contact: '孫女 劉怡君 0900-000-008', note: '每日早晨量體重，注意下肢水腫。',
+      vitals: [V(1460, 118, 70, 36.4, 82, 95, '', 18), V(90, 112, 68, 36.5, 88, 94, '', 20)],
+      moves: [M(600, 'B棟寢室'), M(160, '浴室', '床上擦澡後推輪椅沐浴'), M(110, 'B棟寢室', '返回休息')],
+    },
+    {
+      name: '周志明', title: '周爺爺', gender: '男', birthYear: y - 76, room: 'A109', status: 'active',
+      avatar: { skin: '#dcaa84', hair: '#6b6058', style: 'short', glasses: true, bg: '#e5eedc', shirt: '#6f8f61' },
+      conditions: ['憂鬱症', '高血壓'], allergies: ['乳膠'], meds: ['Sertraline 50mg（早餐後）', 'Losartan 50mg（早餐後）'],
+      mobility: '可自行步行', diet: '一般飲食', contact: '太太 周陳美惠 0900-000-009', note: '近期話變少，鼓勵參與團體活動。照護時請使用非乳膠手套。',
+      vitals: [V(300, 136, 86, 36.6, 70, 98)],
+      moves: [M(330, 'A棟寢室'), M(280, '餐廳'), M(230, '活動室', '書法班'), M(80, '庭院花園', '下棋')],
+    },
+    {
+      name: '蔡淑芬', title: '蔡奶奶', gender: '女', birthYear: y - 81, room: 'B209', status: 'meal',
+      avatar: { skin: '#f0c7a4', hair: '#a9a29a', style: 'curly', glasses: true, bg: '#f8ebcc', shirt: '#c7954a' },
+      conditions: ['第二型糖尿病', '視力退化（黃斑部病變）'], allergies: ['頭孢菌素類抗生素'], meds: ['胰島素（三餐前）'],
+      mobility: '使用助行器，夜間需開燈', diet: '糖尿病飲食', contact: '女兒 蔡雅雯 0900-000-010', note: '視力差，請先出聲再靠近，避免驚嚇。',
+      vitals: [V(1440, 142, 84, 36.5, 80, 97, 168), V(25, 146, 88, 36.6, 84, 97, 212)],
+      moves: [M(310, 'B棟寢室'), M(265, '餐廳'), M(200, '醫護站', '注射胰島素'), M(140, '活動室'), M(15, '餐廳', '午餐')],
+    },
+  ];
 }
 
 /* ---------- 儲存 ---------- */
 function load() {
   try {
     const d = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-    if (d && Array.isArray(d.residents)) return d;
+    if (d && Array.isArray(d.residents)) {
+      d.notices = Array.isArray(d.notices) ? d.notices : [];
+      if ((d.version || 1) < 2) {
+        const names = new Set(d.residents.map(r => r.name));
+        d.residents.push(...extraSamples().filter(r => !names.has(r.name)).map(r => ({ id: uid(), ...r })));
+        if (!d.notices.length) d.notices = freshData().notices;
+        d.version = 2;
+      }
+      return d;
+    }
   } catch { /* 忽略 */ }
-  return { residents: sampleData() };
+  return freshData();
+}
+function freshData() {
+  const now = Date.now();
+  const ago = m => localDT(new Date(now - m * 6e4));
+  return {
+    version: 2,
+    residents: sampleData(),
+    notices: [
+      { id: uid(), at: ago(240), level: 'important', author: '早班 王護理師', text: '張爺爺今晨早餐有嗆咳，午餐改為軟質並全程陪同。' },
+      { id: uid(), at: ago(120), level: 'normal', author: '社工 林小姐', text: '下午 3 點活動室有懷舊電影欣賞，請協助行動不便長者前往。' },
+    ],
+  };
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
@@ -164,7 +228,11 @@ const fold = s => String(s ?? '').toLowerCase();
 /* ---------- 畫面 ---------- */
 function render() {
   document.querySelectorAll('.view-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === ui.view));
-  ui.view === 'residents' ? renderResidents() : renderMoves();
+  const badge = alerts().filter(a => a.level !== 'low').length;
+  const nb = $('#noticeBadge');
+  nb.textContent = badge;
+  nb.hidden = !badge;
+  ({ residents: renderResidents, moves: renderMoves, notices: renderNotices, ai: renderAI })[ui.view]();
   renderDetail();
 }
 function commit() { save(); render(); }
@@ -225,7 +293,10 @@ function renderResidents() {
       ${ZONES.map(([z, ic]) => `<button class="zone-chip${count(z) ? '' : ' empty-zone'}" data-zone="${z}" aria-pressed="${ui.zone === z}">${ic} ${z} <span class="n">${count(z)}</span></button>`).join('')}
     </div>
 
+    ${(() => { const hi = alerts().filter(a => a.level === 'high').length; return hi ? `<button class="banner" data-view="notices">⚠ 目前有 <b>${hi}</b> 則重要提醒，點此查看通知中心</button>` : ''; })()}
+
     <div class="toolbar">
+      <button class="btn btn-primary" data-action="add">＋ 新增長者</button>
       <label class="search">🔍<input id="q" type="search" placeholder="搜尋姓名、房號、病史…" value="${esc(ui.query)}" autocomplete="off" aria-label="搜尋長者"></label>
       <span class="result-note">${ui.zone === 'all' ? '' : `目前在「${esc(ui.zone)}」：`}共 ${list.length} 位</span>
     </div>
@@ -372,6 +443,7 @@ function renderDetail() {
       <button class="icon-btn" data-action="close" aria-label="關閉">✕</button>
     </div>
     <div class="d-status">
+      <button class="btn btn-ghost" data-action="edit">✎ 編輯資料</button>
       <select data-status aria-label="目前狀態">
         ${Object.entries(STATUS).map(([k, s]) => `<option value="${k}"${k === r.status ? ' selected' : ''}>狀態：${s.label}</option>`).join('')}
       </select>
@@ -392,6 +464,326 @@ function renderDetail() {
 
   drawer.hidden = false; $('#scrim').hidden = false; document.body.classList.add('lock');
   drawer.scrollTop = wasHidden ? 0 : scroll;
+}
+
+
+/* ---------- 通知中心 ---------- */
+const LEVEL = { high: { label: '緊急', tone: 'red' }, mid: { label: '注意', tone: 'amber' }, low: { label: '提醒', tone: 'calm' } };
+const isWanderer = r => [...r.conditions, r.note].join(' ').includes('遊走');
+
+function abnList(v) {
+  const out = [];
+  if (isAbn('sys', v.sys) || isAbn('dia', v.dia)) out.push(`血壓 ${v.sys}/${v.dia}`);
+  if (isAbn('temp', v.temp)) out.push(`體溫 ${v.temp}°C`);
+  if (isAbn('pulse', v.pulse)) out.push(`脈搏 ${v.pulse}`);
+  if (isAbn('spo2', v.spo2)) out.push(`血氧 ${v.spo2}%`);
+  if (isAbn('sugar', v.sugar)) out.push(`血糖 ${v.sugar}`);
+  if (isAbn('resp', v.resp)) out.push(`呼吸 ${v.resp}`);
+  return out;
+}
+
+// 依目前資料自動產生的系統提醒
+function alerts() {
+  const out = [];
+  const now = Date.now();
+  for (const r of db.residents) {
+    if (r.status === 'alert') out.push({ level: 'high', r, text: '狀態標記為「需留意」' });
+    if (r.status === 'medical') out.push({ level: 'mid', r, text: '目前就醫中' });
+    const v = latest(r.vitals);
+    if (v) {
+      const ab = abnList(v);
+      if (ab.length) out.push({ level: ab.length >= 2 || isAbn('spo2', v.spo2) ? 'high' : 'mid', r, text: `生命徵象異常：${ab.join('、')}（${when(v.at)}）` });
+      if (now - new Date(v.at) > 24 * 36e5) out.push({ level: 'low', r, text: '超過 24 小時未測量生命徵象' });
+    } else {
+      out.push({ level: 'low', r, text: '尚無生命徵象紀錄' });
+    }
+    const mv = currentMove(r);
+    if (mv && isWanderer(r) && ['大廳', '庭院花園'].includes(mv.zone)) out.push({ level: 'mid', r, text: `有遊走傾向，目前在${mv.zone}，請留意出入口` });
+    if (mv && !mv.zone.includes('寢室') && now - new Date(mv.at) > 4 * 36e5) out.push({ level: 'low', r, text: `在${mv.zone}已超過 4 小時未更新位置` });
+  }
+  const order = { high: 0, mid: 1, low: 2 };
+  return out.sort((a, b) => order[a.level] - order[b.level]);
+}
+
+function renderNotices() {
+  const list = alerts();
+  const notices = [...db.notices].sort((a, b) => b.at.localeCompare(a.at));
+  $('#main').innerHTML = `
+    <div class="two-col">
+      <section>
+        <h2 class="section-title" style="margin-top:0">系統提醒 <small>依目前資料自動產生</small></h2>
+        <div class="alert-list">
+          ${list.length ? list.map(a => `
+            <div class="alert-item lv-${a.level}" role="button" tabindex="0" data-open="${esc(a.r.id)}">
+              ${avatar(a.r.avatar, 'sm')}
+              <div><b>${esc(a.r.name)}</b> <small>${esc(a.r.room)}</small><br><span>${esc(a.text)}</span></div>
+              <span class="pill tone-${LEVEL[a.level].tone}">${LEVEL[a.level].label}</span>
+            </div>`).join('') : '<div class="empty">目前沒有提醒 🌿</div>'}
+        </div>
+      </section>
+      <section>
+        <h2 class="section-title" style="margin-top:0">交班公告</h2>
+        <form class="box" data-form="notice" style="margin-top:0">
+          <label class="field full"><span>公告內容</span><textarea name="text" rows="3" required placeholder="例如：今晚 B 棟浴室維修，請改用 A 棟浴室。"></textarea></label>
+          <div class="form-row" style="margin-top:10px">
+            <label class="field"><span>重要程度</span><select name="level"><option value="normal">一般</option><option value="important">重要</option></select></label>
+            <label class="field" style="grid-column: span 2"><span>發布人</span><input name="author" placeholder="例如：夜班 陳照服員"></label>
+          </div>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">發布公告</button></div>
+        </form>
+        <div class="notice-list">
+          ${notices.length ? notices.map(n => `
+            <article class="notice${n.level === 'important' ? ' important' : ''}">
+              <header><span>${n.level === 'important' ? '📌 重要 · ' : ''}${when(n.at)}${n.author ? ` · ${esc(n.author)}` : ''}</span>
+                <button class="icon-btn sm" data-action="notice-del" data-id="${esc(n.id)}" aria-label="刪除公告">✕</button></header>
+              <p>${esc(n.text)}</p>
+            </article>`).join('') : '<div class="empty">尚無公告</div>'}
+        </div>
+      </section>
+    </div>`;
+}
+
+/* ---------- AI 分析 ---------- */
+// 本機規則式風險評估：不需網路，資料不會離開裝置
+function assess(r) {
+  const f = [];
+  const add = (pts, text, tip) => f.push({ pts, text, tip });
+  const v = latest(r.vitals);
+  const prev = [...r.vitals].sort((a, b) => b.at.localeCompare(a.at))[1];
+  if (r.status === 'alert') add(3, '照護人員已標記「需留意」', '提高巡視頻率，每 1 小時確認一次狀況');
+  if (r.status === 'medical') add(2, '目前就醫中', '追蹤就醫結果並更新用藥、照護計畫');
+  if (v) {
+    if (isAbn('spo2', v.spo2)) add(3, `血氧偏低（${v.spo2}%）`, '協助半坐臥、評估是否需給氧，30 分鐘後複測');
+    if (isAbn('temp', v.temp)) add(2, `體溫異常（${v.temp}°C）`, '補充水分、1 小時後複測體溫，持續發燒請通報護理師');
+    if (isAbn('sys', v.sys) || isAbn('dia', v.dia)) add(2, `血壓超出範圍（${v.sys}/${v.dia}）`, '休息 15 分鐘後複測，確認是否按時服用降壓藥');
+    if (isAbn('pulse', v.pulse)) add(2, `脈搏異常（${v.pulse}）`, '觀察是否有胸悶、頭暈，必要時通報');
+    if (isAbn('sugar', v.sugar)) add(2, `血糖異常（${v.sugar} mg/dL）`, '確認飲食與胰島素時間，依醫囑處理');
+    if (isAbn('resp', v.resp)) add(1, `呼吸次數異常（${v.resp}）`, '觀察呼吸型態與膚色');
+    if (prev) {
+      if (v.sys !== '' && prev.sys !== '' && v.sys - prev.sys >= 15) add(1, `血壓較上次上升 ${v.sys - prev.sys} mmHg`, '持續追蹤血壓趨勢');
+      if (v.temp !== '' && prev.temp !== '' && v.temp - prev.temp >= 0.5) add(1, `體溫較上次上升 ${(v.temp - prev.temp).toFixed(1)}°C`, '注意感染徵兆');
+      if (v.spo2 !== '' && prev.spo2 !== '' && prev.spo2 - v.spo2 >= 2) add(1, `血氧較上次下降 ${prev.spo2 - v.spo2}%`, '注意呼吸狀況');
+    }
+    if (Date.now() - new Date(v.at) > 24 * 36e5) add(1, '超過 24 小時未測量生命徵象', '安排今日測量');
+  } else add(1, '尚無生命徵象紀錄', '安排測量基準值');
+
+  const fallSigns = /助行器|輪椅|協助|防跌|臥床/.test(r.mobility);
+  if (age(r) >= 85 && fallSigns) add(2, `高齡 ${age(r)} 歲且行動需輔助，跌倒風險高`, '保持走道淨空、床欄拉起、移位時全程陪同');
+  else if (fallSigns) add(1, '行動需輔助，有跌倒風險', '移位與如廁時陪同');
+  if (r.meds.join(' ').includes('抗凝血') || r.meds.join(' ').includes('Clopidogrel')) add(1, '服用抗凝血／抗血小板藥物', '跌倒或碰撞後需檢查瘀青與出血');
+  if (/吞嚥|嗆咳/.test([...r.conditions, r.diet, r.note].join(' '))) add(1, '有吞嚥困難或嗆咳情形', '進食時坐正、少量慢食，餐後維持坐姿 30 分鐘');
+
+  const today = dayStr();
+  const todayMoves = r.moves.filter(m => m.at.startsWith(today));
+  if (isWanderer(r)) {
+    const exits = todayMoves.filter(m => ['大廳', '庭院花園'].includes(m.zone)).length;
+    if (exits >= 2) add(2, `有遊走傾向，今天已 ${exits} 次到大廳／庭院`, '安排陪伴活動、留意出入口門禁');
+    else add(1, '有遊走傾向', '定時確認所在位置');
+  }
+  const outings = new Set(todayMoves.filter(m => !m.zone.includes('寢室')).map(m => m.zone)).size;
+  if (outings === 0 && !/臥床/.test(r.mobility)) add(1, '今天幾乎沒有離開寢室', '鼓勵參加團體活動或到庭院曬太陽');
+  if (/憂鬱/.test(r.conditions.join(' '))) add(1, '有憂鬱症病史', '留意情緒與食慾變化，多陪伴聊天');
+
+  const score = f.reduce((n, x) => n + x.pts, 0);
+  const level = score >= 6 ? 'high' : score >= 3 ? 'mid' : 'low';
+  return { r, score, level, findings: f.sort((a, b) => b.pts - a.pts) };
+}
+const RISK = { high: { label: '高風險', tone: 'red' }, mid: { label: '中風險', tone: 'amber' }, low: { label: '低風險', tone: 'green' } };
+
+function renderAI() {
+  const res = db.residents.map(assess).sort((a, b) => b.score - a.score);
+  const n = k => res.filter(x => x.level === k).length;
+  const key = (() => { try { return localStorage.getItem('changqing-care:apikey') || ''; } catch { return ''; } })();
+  $('#main').innerHTML = `
+    <section class="ai-hero">
+      <div>
+        <h2>🤖 AI 照護分析</h2>
+        <p>綜合生命徵象、病史、行動能力與今日動線，自動找出需要優先關注的長者並提供照護建議。結果僅供參考，不能取代醫護專業判斷。</p>
+      </div>
+      <div class="risk-sum">
+        <span class="pill tone-red">高風險 ${n('high')}</span><span class="pill tone-amber">中風險 ${n('mid')}</span><span class="pill tone-green">低風險 ${n('low')}</span>
+      </div>
+    </section>
+
+    <h2 class="section-title">風險排序（本機分析，資料不會離開這台裝置）</h2>
+    <div class="grid">
+      ${res.map(x => `
+        <article class="card risk-card" role="button" tabindex="0" data-open="${esc(x.r.id)}">
+          <div class="card-head">
+            ${avatar(x.r.avatar)}
+            <div class="who"><h3>${esc(x.r.name)}<small>${esc(x.r.title)}</small></h3><p>房號 ${esc(x.r.room)} · 風險分數 ${x.score}</p></div>
+            <span class="pill tone-${RISK[x.level].tone}">${RISK[x.level].label}</span>
+          </div>
+          ${x.findings.length ? `<ul class="findings">${x.findings.slice(0, 4).map(f => `<li><b>${esc(f.text)}</b><span>→ ${esc(f.tip)}</span></li>`).join('')}</ul>` : '<p class="result-note">目前狀況穩定，維持例行照護即可。</p>'}
+        </article>`).join('')}
+    </div>
+
+    <section class="box claude-box">
+      <h3>✨ 使用 Claude 產生交班摘要 <small>需要 Anthropic API 金鑰</small></h3>
+      <p class="warn-note">按下「開始分析」後，所選長者的照護資料會傳送給 Anthropic 的 Claude 處理。系統會以稱呼（如「陳奶奶」）代替全名，且不包含聯絡電話。使用實際長者資料前，請先確認符合機構的個資規範。</p>
+      <div class="form-row">
+        <label class="field"><span>分析對象</span>
+          <select id="aiTarget"><option value="all">全體長者</option>${db.residents.map(r => `<option value="${esc(r.id)}">${esc(r.name)}（${esc(r.room)}）</option>`).join('')}</select>
+        </label>
+        <label class="field" style="grid-column: span 2"><span>API 金鑰</span><input id="aiKey" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(key)}"></label>
+      </div>
+      <label class="check"><input id="aiRemember" type="checkbox"${key ? ' checked' : ''}> 在這台裝置記住金鑰（只存在本機瀏覽器）</label>
+      <div class="form-actions"><button class="btn btn-primary" data-action="ai-run" id="aiRun">開始分析</button></div>
+      <div id="aiOut" class="ai-out" hidden></div>
+    </section>`;
+}
+
+function aiPayload(target) {
+  const list = target === 'all' ? db.residents : db.residents.filter(r => r.id === target);
+  const today = dayStr();
+  return list.map(r => ({
+    稱呼: r.title, 年齡: age(r), 性別: r.gender, 房號: r.room, 狀態: STATUS[r.status].label,
+    病史: r.conditions, 過敏: r.allergies, 用藥: r.meds, 行動能力: r.mobility, 飲食: r.diet, 照護備註: r.note,
+    生命徵象: [...r.vitals].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5)
+      .map(v => ({ 時間: v.at, 血壓: v.sys !== '' ? `${v.sys}/${v.dia}` : '', 體溫: v.temp, 脈搏: v.pulse, 血氧: v.spo2, 血糖: v.sugar, 呼吸: v.resp })),
+    今日動線: r.moves.filter(m => m.at.startsWith(today)).sort((a, b) => a.at.localeCompare(b.at)).map(m => `${hhmm(m.at)} ${m.zone}${m.note ? `（${m.note}）` : ''}`),
+    系統風險評估: assess(r).findings.map(f => f.text),
+  }));
+}
+
+// 簡易 Markdown 轉換（先跳脫 HTML 再加格式）
+function miniMarkdown(md) {
+  return esc(md).split('\n').map(line => {
+    const l = line.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    if (/^#{1,6}\s/.test(line)) return `<h4>${l.replace(/^#{1,6}\s/, '')}</h4>`;
+    if (/^\s*[-*]\s/.test(line)) return `<li>${l.replace(/^\s*[-*]\s/, '')}</li>`;
+    return l.trim() ? `<p>${l}</p>` : '';
+  }).join('');
+}
+
+async function runClaude() {
+  const key = $('#aiKey').value.trim();
+  const out = $('#aiOut');
+  const btn = $('#aiRun');
+  if (!key) { toast('請先輸入 Anthropic API 金鑰'); return; }
+  try {
+    if ($('#aiRemember').checked) localStorage.setItem('changqing-care:apikey', key);
+    else localStorage.removeItem('changqing-care:apikey');
+  } catch { /* 忽略 */ }
+  out.hidden = false;
+  out.innerHTML = '<p class="result-note">Claude 正在分析，約需 30 秒至 1 分鐘…</p>';
+  btn.disabled = true;
+  try {
+    const { default: Anthropic } = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.131.0/+esm');
+    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+    const response = await client.beta.messages.create({
+      model: 'claude-opus-5-5',
+      max_tokens: 16000,
+      output_config: { effort: 'medium' },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      system: '你是長照機構的資深護理顧問，協助照服員與護理師交班。請一律使用繁體中文，語氣溫和、條列清楚、可直接執行。你不做醫療診斷；遇到可能危急的狀況，要明確建議立即通報護理師或醫師。',
+      messages: [{
+        role: 'user',
+        content: `以下是今天長者的照護資料（JSON）。請整理成交班摘要，包含：\n1. 今日整體重點（三點以內）\n2. 需優先關注的長者：原因與具體照護建議\n3. 其他長者的簡短狀況\n4. 下一班需要追蹤的事項\n\n${JSON.stringify(aiPayload($('#aiTarget').value), null, 1)}`,
+      }],
+    });
+    if (response.stop_reason === 'refusal') {
+      out.innerHTML = '<p class="result-note">Claude 無法處理這次的請求，請調整內容後再試一次。</p>';
+      return;
+    }
+    const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    out.innerHTML = `<div class="ai-text">${miniMarkdown(text)}</div><p class="result-note">由 Claude 產生 · ${when(localDT())} · 僅供參考</p>`;
+  } catch (err) {
+    const status = err?.status;
+    const msg = status === 401 ? 'API 金鑰無效，請確認後再試。'
+      : status === 429 ? '請求太頻繁或額度不足，請稍後再試。'
+      : status ? `Claude 服務回傳錯誤（${status}）。` : '無法連線到 Claude，請檢查網路連線。';
+    out.innerHTML = `<p class="warn-note">${esc(msg)}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- 新增／編輯長者 ---------- */
+const AV = {
+  style: [['bun', '髮髻'], ['short', '短髮'], ['curly', '捲髮'], ['bald', '少髮']],
+  hair: [['#f1eeea', '白髮'], ['#cfc9c3', '銀灰'], ['#a9a29a', '灰髮'], ['#6b6058', '深灰']],
+  skin: [['#f6d6bd', '白皙'], ['#ebbd98', '自然'], ['#d6a07a', '小麥']],
+  bg: [['#f6e4d6', '#c98b6b'], ['#e5eedc', '#7c9a6d'], ['#f8ebcc', '#c7954a'], ['#e0ebf1', '#6f8aa0'], ['#f6e0e5', '#b56f86'], ['#efe8df', '#8a7b6c']],
+};
+const splitList = s => String(s || '').split(/[,，、\n]/).map(x => x.trim()).filter(Boolean);
+
+function openEditor(id) {
+  const r = id ? byId(id) : null;
+  ui.editingId = r ? r.id : null;
+  const dlg = $('#editor');
+  const a = r ? r.avatar : { style: 'short', hair: '#cfc9c3', skin: '#ebbd98', bg: '#f6e4d6', shirt: '#c98b6b', glasses: false };
+  const opt = (list, cur) => list.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('');
+  dlg.innerHTML = `
+    <form data-form="resident" class="editor-form">
+      <header class="modal-head"><h2>${r ? '編輯長者資料' : '新增長者'}</h2><button type="button" class="icon-btn" data-action="editor-close" aria-label="關閉">✕</button></header>
+      <div class="editor-body">
+        <div class="av-picker">
+          <div id="avPreview">${avatar(a, 'lg')}</div>
+          <div class="form-row">
+            <label class="field"><span>髮型</span><select name="av_style">${opt(AV.style, a.style)}</select></label>
+            <label class="field"><span>髮色</span><select name="av_hair">${opt(AV.hair, a.hair)}</select></label>
+            <label class="field"><span>膚色</span><select name="av_skin">${opt(AV.skin, a.skin)}</select></label>
+          </div>
+          <div class="swatches">${AV.bg.map(([bg, shirt]) => `<label class="swatch" style="--c:${bg}"><input type="radio" name="av_bg" value="${bg}|${shirt}"${bg === a.bg ? ' checked' : ''}><span></span></label>`).join('')}
+            <label class="check"><input type="checkbox" name="av_glasses"${a.glasses ? ' checked' : ''}> 戴眼鏡</label></div>
+        </div>
+        <div class="form-row">
+          <label class="field"><span>姓名 *</span><input name="name" required value="${esc(r?.name)}"></label>
+          <label class="field"><span>稱呼</span><input name="title" placeholder="例如：陳奶奶" value="${esc(r?.title)}"></label>
+          <label class="field"><span>性別</span><select name="gender">${opt([['女', '女'], ['男', '男']], r?.gender || '女')}</select></label>
+          <label class="field"><span>年齡 *</span><input name="age" type="number" min="40" max="120" required value="${r ? age(r) : ''}"></label>
+          <label class="field"><span>房號 *</span><input name="room" required placeholder="例如：A111" value="${esc(r?.room)}"></label>
+          <label class="field"><span>狀態</span><select name="status">${opt(Object.entries(STATUS).map(([k, v]) => [k, v.label]), r?.status || 'rest')}</select></label>
+          ${r ? '' : `<label class="field"><span>目前所在區域</span><select name="zone">${opt(ZONES.map(([z]) => [z, z]), 'A棟寢室')}</select></label>`}
+          <label class="field full"><span>病史（用頓號或逗號分隔）</span><input name="conditions" placeholder="例如：高血壓、糖尿病" value="${esc(r?.conditions.join('、'))}"></label>
+          <label class="field full"><span>過敏（沒有可留空）</span><input name="allergies" placeholder="例如：盤尼西林、花生" value="${esc(r?.allergies.join('、'))}"></label>
+          <label class="field full"><span>用藥</span><input name="meds" placeholder="例如：降血壓藥（早餐後）" value="${esc(r?.meds.join('、'))}"></label>
+          <label class="field"><span>行動能力</span><input name="mobility" placeholder="例如：使用助行器" value="${esc(r?.mobility)}"></label>
+          <label class="field"><span>飲食</span><input name="diet" placeholder="例如：低鹽飲食" value="${esc(r?.diet)}"></label>
+          <label class="field"><span>緊急聯絡人</span><input name="contact" placeholder="例如：女兒 0900-…" value="${esc(r?.contact)}"></label>
+          <label class="field full"><span>照護備註</span><input name="note" value="${esc(r?.note)}"></label>
+        </div>
+      </div>
+      <footer class="modal-foot">
+        ${r ? '<button type="button" class="btn btn-ghost danger" data-action="resident-del" style="margin-right:auto">刪除這位長者</button>' : ''}
+        <button type="button" class="btn btn-ghost" data-action="editor-close">取消</button>
+        <button type="submit" class="btn btn-primary">${r ? '儲存' : '新增'}</button>
+      </footer>
+    </form>`;
+  dlg.showModal();
+  dlg.querySelector('[name="name"]').focus();
+}
+
+function editorAvatar(form) {
+  const f = new FormData(form);
+  const [bg, shirt] = String(f.get('av_bg') || '#f6e4d6|#c98b6b').split('|');
+  return { style: f.get('av_style'), hair: f.get('av_hair'), skin: f.get('av_skin'), bg, shirt, glasses: f.get('av_glasses') === 'on' };
+}
+
+function saveResident(form) {
+  const f = Object.fromEntries(new FormData(form));
+  const data = {
+    name: f.name.trim(), title: f.title.trim() || `${f.name.trim()[0] || ''}${f.gender === '男' ? '爺爺' : '奶奶'}`,
+    gender: f.gender, birthYear: new Date().getFullYear() - Number(f.age), room: f.room.trim().toUpperCase(), status: f.status,
+    conditions: splitList(f.conditions), allergies: splitList(f.allergies), meds: splitList(f.meds),
+    mobility: f.mobility.trim(), diet: f.diet.trim(), contact: f.contact.trim(), note: f.note.trim(),
+    avatar: editorAvatar(form),
+  };
+  const r = byId(ui.editingId);
+  if (r) {
+    Object.assign(r, data);
+    toast(`已更新 ${data.name} 的資料`);
+  } else {
+    const nr = { id: uid(), ...data, vitals: [], moves: [{ id: uid(), at: localDT(), zone: f.zone, note: '入住登記' }] };
+    db.residents.push(nr);
+    ui.selectedId = nr.id;
+    ui.tab = 'health';
+    toast(`已新增 ${data.name}`);
+  }
+  $('#editor').close();
+  commit();
 }
 
 /* ---------- 動作 ---------- */
@@ -439,12 +831,30 @@ document.addEventListener('click', e => {
   }
   const act = t.closest('[data-action]')?.dataset.action;
   if (act === 'close') close();
+  else if (act === 'add') openEditor();
+  else if (act === 'edit') openEditor(ui.selectedId);
+  else if (act === 'editor-close') $('#editor').close();
+  else if (act === 'ai-run') runClaude();
+  else if (act === 'notice-del' && confirm('刪除這則公告？')) {
+    const id = t.closest('[data-action]').dataset.id;
+    db.notices = db.notices.filter(n => n.id !== id);
+    commit();
+  } else if (act === 'resident-del') {
+    const victim = byId(ui.editingId);
+    if (victim && confirm(`確定要刪除「${victim.name}」的所有資料嗎？此動作無法復原。`)) {
+      db.residents = db.residents.filter(x => x.id !== victim.id);
+      ui.selectedId = null;
+      $('#editor').close();
+      commit();
+      toast('已刪除');
+    }
+  }
   else if (act === 'move-del' && r && confirm('刪除這筆動線紀錄？')) {
     const id = t.closest('[data-action]').dataset.id;
     r.moves = r.moves.filter(m => m.id !== id);
     commit();
   } else if (act === 'reset' && confirm('確定要清除目前所有資料，並重新載入示範長者嗎？')) {
-    db = { residents: sampleData() };
+    db = freshData();
     ui.selectedId = null;
     commit();
     toast('已重設為示範資料');
@@ -464,6 +874,10 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('change', e => {
+  if (e.target.form?.dataset.form === 'resident' && e.target.name?.startsWith('av_')) {
+    $('#avPreview').innerHTML = avatar(editorAvatar(e.target.form), 'lg');
+    return;
+  }
   if (e.target.id === 'mzone') { ui.mzone = e.target.value; renderMoves(); }
   else if (e.target.id === 'mday') { ui.mday = e.target.value; renderMoves(); }
   else if (e.target.matches('[data-status]')) {
@@ -477,6 +891,15 @@ document.addEventListener('change', e => {
 document.addEventListener('submit', e => {
   e.preventDefault();
   const form = e.target;
+  if (form.dataset.form === 'resident') { saveResident(form); return; }
+  if (form.dataset.form === 'notice') {
+    const n = Object.fromEntries(new FormData(form));
+    if (!n.text.trim()) return;
+    db.notices.push({ id: uid(), at: localDT(), level: n.level, author: n.author.trim(), text: n.text.trim() });
+    commit();
+    toast('已發布公告');
+    return;
+  }
   const r = byId(ui.selectedId);
   if (!r) return;
   const f = Object.fromEntries(new FormData(form));
@@ -500,6 +923,8 @@ document.addEventListener('keydown', e => {
     open(e.target.dataset.open, e.target.dataset.tab);
   }
 });
+
+$('#editor').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
 window.addEventListener('storage', e => { if (e.key === STORE_KEY) { db = load(); render(); } });
 

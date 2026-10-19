@@ -24,6 +24,8 @@
       <nav class="views" aria-label="切換畫面">
         <button class="view-btn" data-view="residents">長者總覽</button>
         <button class="view-btn" data-view="moves">動線查詢</button>
+        <button class="view-btn" data-view="notices">通知中心 <span class="badge" id="noticeBadge" hidden></span></button>
+        <button class="view-btn" data-view="ai">AI 分析</button>
       </nav>
     </div>
   </header>
@@ -31,12 +33,13 @@
   <main class="wrap" id="main"></main>
 
   <footer class="wrap footer">
-    <p>🔒 資料只儲存在這台裝置的瀏覽器中，不會上傳到任何伺服器。畫面中的長者皆為示範資料。</p>
+    <p>🔒 資料只儲存在這台裝置的瀏覽器中，不會上傳到任何伺服器（除非你在「AI 分析」中主動使用 Claude）。畫面中的長者皆為示範資料。</p>
     <button class="btn btn-ghost" data-action="reset">重設為示範資料</button>
   </footer>
 
   <div class="scrim" id="scrim" data-action="close" hidden></div>
   <aside class="drawer" id="detail" aria-label="長者資料" hidden></aside>
+  <dialog class="modal" id="editor" aria-label="長者資料"></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
 
   <script src="app.js"></script>
