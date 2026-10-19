@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>長青園照護看板</title>
+  <meta name="description" content="長照機構照護看板：長者狀態、生命徵象、病史過敏與園區動線紀錄。資料僅存在本機瀏覽器。">
+  <meta name="theme-color" content="#b8653a">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 21s-7-4.4-9.3-9A5.2 5.2 0 0 1 12 6.3 5.2 5.2 0 0 1 21.3 12C19 16.6 12 21 12 21Z"/></svg>
+        </span>
+        <span class="brand-text"><strong>長青園照護看板</strong><small id="today"></small></span>
+      </div>
+      <nav class="views" aria-label="切換畫面">
+        <button class="view-btn" data-view="residents">長者總覽</button>
+        <button class="view-btn" data-view="moves">動線查詢</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap" id="main"></main>
+
+  <footer class="wrap footer">
+    <p>🔒 資料只儲存在這台裝置的瀏覽器中，不會上傳到任何伺服器。畫面中的長者皆為示範資料。</p>
+    <button class="btn btn-ghost" data-action="reset">重設為示範資料</button>
+  </footer>
+
+  <div class="scrim" id="scrim" data-action="close" hidden></div>
+  <aside class="drawer" id="detail" aria-label="長者資料" hidden></aside>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
