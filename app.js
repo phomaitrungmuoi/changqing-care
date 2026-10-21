@@ -215,6 +215,7 @@ function save() {
 }
 
 let db = load();
+try { localStorage.removeItem('changqing-care:apikey'); } catch { /* 舊版 Claude 金鑰，已不使用 */ }
 if (!localStorage.getItem(STORE_KEY)) save();
 const ui = { view: 'residents', zone: 'all', query: '', selectedId: null, tab: 'health', mq: '', mzone: 'all', mday: 'today' };
 
@@ -593,7 +594,8 @@ const RISK = { high: { label: '高風險', tone: 'red' }, mid: { label: '中風�
 function renderAI() {
   const res = db.residents.map(assess).sort((a, b) => b.score - a.score);
   const n = k => res.filter(x => x.level === k).length;
-  const key = (() => { try { return localStorage.getItem('changqing-care:apikey') || ''; } catch { return ''; } })();
+  const key = (() => { try { return localStorage.getItem(GEMINI_KEY_STORE) || ''; } catch { return ''; } })();
+  const aiModel = (() => { try { return localStorage.getItem(GEMINI_MODEL_STORE) || GEMINI_MODELS[0][0]; } catch { return GEMINI_MODELS[0][0]; } })();
   $('#main').innerHTML = `
     <section class="ai-hero">
       <div>
@@ -618,14 +620,17 @@ function renderAI() {
         </article>`).join('')}
     </div>
 
-    <section class="box claude-box">
-      <h3>✨ 使用 Claude 產生交班摘要 <small>需要 Anthropic API 金鑰</small></h3>
-      <p class="warn-note">按下「開始分析」後，所選長者的照護資料會傳送給 Anthropic 的 Claude 處理。系統會以稱呼（如「陳奶奶」）代替全名，且不包含聯絡電話。使用實際長者資料前，請先確認符合機構的個資規範。</p>
+    <section class="box ai-box">
+      <h3>✨ 使用 Google Gemini 產生交班摘要 <small>需要 Gemini API 金鑰</small></h3>
+      <p class="warn-note">按下「開始分析」後，所選長者的照護資料會傳送給 Google 的 Gemini 處理。系統會以稱呼（如「陳奶奶」）代替全名，且不包含聯絡電話。金鑰只存在你這台裝置的瀏覽器，不會放進網站程式碼。使用實際長者資料前，請先確認符合機構的個資規範。</p>
       <div class="form-row">
         <label class="field"><span>分析對象</span>
           <select id="aiTarget"><option value="all">全體長者</option>${db.residents.map(r => `<option value="${esc(r.id)}">${esc(r.name)}（${esc(r.room)}）</option>`).join('')}</select>
         </label>
-        <label class="field" style="grid-column: span 2"><span>API 金鑰</span><input id="aiKey" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(key)}"></label>
+        <label class="field"><span>模型</span>
+          <select id="aiModel">${GEMINI_MODELS.map(([v, l]) => `<option value="${v}"${v === aiModel ? ' selected' : ''}>${l}</option>`).join('')}</select>
+        </label>
+        <label class="field"><span>API 金鑰</span><input id="aiKey" type="password" autocomplete="off" placeholder="貼上你的 Gemini API 金鑰" value="${esc(key)}"></label>
       </div>
       <label class="check"><input id="aiRemember" type="checkbox"${key ? ' checked' : ''}> 在這台裝置記住金鑰（只存在本機瀏覽器）</label>
       <div class="form-actions"><button class="btn btn-primary" data-action="ai-run" id="aiRun">開始分析</button></div>
@@ -656,45 +661,65 @@ function miniMarkdown(md) {
   }).join('');
 }
 
-async function runClaude() {
+const GEMINI_KEY_STORE = 'changqing-care:gemini-key';
+const GEMINI_MODEL_STORE = 'changqing-care:gemini-model';
+const GEMINI_MODELS = [['gemini-flash-latest', 'Gemini Flash（快速）'], ['gemini-pro-latest', 'Gemini Pro（較深入）']];
+const AI_SYSTEM = '你是長照機構的資深護理顧問，協助照服員與護理師交班。請一律使用繁體中文，語氣溫和、條列清楚、可直接執行。你不做醫療診斷；遇到可能危急的狀況，要明確建議立即通報護理師或醫師。';
+
+// 呼叫 Gemini：先試 Gemini API（AI Studio 金鑰），若金鑰不被接受再試 Vertex AI 快速模式端點
+async function callGemini(key, model, prompt) {
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: AI_SYSTEM }] },
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
+  });
+  const endpoints = [
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent`,
+  ];
+  let last;
+  for (const url of endpoints) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+    last = last || { status: res.status, message: data?.error?.message || '' }; // 顯示第一個端點（Gemini API）的錯誤
+    if (![400, 401, 403].includes(res.status)) break; // 只有金鑰類錯誤才改試另一個端點
+  }
+  throw last;
+}
+
+async function runGemini() {
   const key = $('#aiKey').value.trim();
+  const model = $('#aiModel').value;
   const out = $('#aiOut');
   const btn = $('#aiRun');
-  if (!key) { toast('請先輸入 Anthropic API 金鑰'); return; }
+  if (!key) { toast('請先輸入 Gemini API 金鑰'); return; }
   try {
-    if ($('#aiRemember').checked) localStorage.setItem('changqing-care:apikey', key);
-    else localStorage.removeItem('changqing-care:apikey');
+    localStorage.setItem(GEMINI_MODEL_STORE, model);
+    if ($('#aiRemember').checked) localStorage.setItem(GEMINI_KEY_STORE, key);
+    else localStorage.removeItem(GEMINI_KEY_STORE);
   } catch { /* 忽略 */ }
   out.hidden = false;
-  out.innerHTML = '<p class="result-note">Claude 正在分析，約需 30 秒至 1 分鐘…</p>';
+  out.innerHTML = '<p class="result-note">Gemini 正在分析，約需 10–60 秒…</p>';
   btn.disabled = true;
   try {
-    const { default: Anthropic } = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.131.0/+esm');
-    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
-    const response = await client.beta.messages.create({
-      model: 'claude-opus-5-5',
-      max_tokens: 16000,
-      output_config: { effort: 'medium' },
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: '你是長照機構的資深護理顧問，協助照服員與護理師交班。請一律使用繁體中文，語氣溫和、條列清楚、可直接執行。你不做醫療診斷；遇到可能危急的狀況，要明確建議立即通報護理師或醫師。',
-      messages: [{
-        role: 'user',
-        content: `以下是今天長者的照護資料（JSON）。請整理成交班摘要，包含：\n1. 今日整體重點（三點以內）\n2. 需優先關注的長者：原因與具體照護建議\n3. 其他長者的簡短狀況\n4. 下一班需要追蹤的事項\n\n${JSON.stringify(aiPayload($('#aiTarget').value), null, 1)}`,
-      }],
-    });
-    if (response.stop_reason === 'refusal') {
-      out.innerHTML = '<p class="result-note">Claude 無法處理這次的請求，請調整內容後再試一次。</p>';
+    const prompt = `以下是今天長者的照護資料（JSON）。請整理成交班摘要，包含：\n1. 今日整體重點（三點以內）\n2. 需優先關注的長者：原因與具體照護建議\n3. 其他長者的簡短狀況\n4. 下一班需要追蹤的事項\n\n${JSON.stringify(aiPayload($('#aiTarget').value), null, 1)}`;
+    const data = await callGemini(key, model, prompt);
+    const cand = data.candidates?.[0];
+    const text = (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
+    if (!text) {
+      const why = data.promptFeedback?.blockReason || cand?.finishReason || '';
+      out.innerHTML = `<p class="warn-note">Gemini 沒有回傳內容${why ? `（${esc(why)}）` : ''}，請稍後再試或換一個模型。</p>`;
       return;
     }
-    const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
-    out.innerHTML = `<div class="ai-text">${miniMarkdown(text)}</div><p class="result-note">由 Claude 產生 · ${when(localDT())} · 僅供參考</p>`;
+    out.innerHTML = `<div class="ai-text">${miniMarkdown(text)}</div><p class="result-note">由 ${esc(model)} 產生 · ${when(localDT())} · 僅供參考</p>`;
   } catch (err) {
     const status = err?.status;
-    const msg = status === 401 ? 'API 金鑰無效，請確認後再試。'
+    const msg = [400, 401, 403].includes(status) ? 'API 金鑰無效或沒有使用 Gemini 的權限，請確認金鑰後再試。'
+      : status === 404 ? '找不到這個模型，請換另一個模型再試。'
       : status === 429 ? '請求太頻繁或額度不足，請稍後再試。'
-      : status ? `Claude 服務回傳錯誤（${status}）。` : '無法連線到 Claude，請檢查網路連線。';
-    out.innerHTML = `<p class="warn-note">${esc(msg)}</p>`;
+      : status ? `Gemini 服務回傳錯誤（${status}）。` : '無法連線到 Gemini，請檢查網路連線。';
+    out.innerHTML = `<p class="warn-note">${esc(msg)}${err?.message ? `<br><small>${esc(err.message)}</small>` : ''}</p>`;
   } finally {
     btn.disabled = false;
   }
@@ -834,7 +859,7 @@ document.addEventListener('click', e => {
   else if (act === 'add') openEditor();
   else if (act === 'edit') openEditor(ui.selectedId);
   else if (act === 'editor-close') $('#editor').close();
-  else if (act === 'ai-run') runClaude();
+  else if (act === 'ai-run') runGemini();
   else if (act === 'notice-del' && confirm('刪除這則公告？')) {
     const id = t.closest('[data-action]').dataset.id;
     db.notices = db.notices.filter(n => n.id !== id);

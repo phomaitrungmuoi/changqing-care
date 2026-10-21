@@ -316,7 +316,7 @@ details summary { cursor: pointer; color: var(--primary); font-weight: 500; marg
 .findings { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .findings li { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); font-size: 14px; }
 .findings li span { color: var(--muted); }
-.claude-box { margin-top: 24px; }
+.ai-box { margin-top: 24px; }
 .warn-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--amber-soft); color: var(--text); font-size: 14px; }
 .check { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; color: var(--muted); cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--primary); }
