@@ -345,3 +345,5 @@ details summary { cursor: pointer; color: var(--primary); font-weight: 500; marg
 .swatch input:checked + span { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .swatch input:focus-visible + span { outline: 3px solid var(--primary); outline-offset: 2px; }
 @media (max-width: 520px) { .av-picker { grid-template-columns: 1fr; justify-items: start; } .av-picker #avPreview { grid-row: auto; } }
+.ai-key-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.ai-key-row .field { flex: 1 1 260px; }

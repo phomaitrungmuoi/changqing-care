@@ -595,7 +595,6 @@ function renderAI() {
   const res = db.residents.map(assess).sort((a, b) => b.score - a.score);
   const n = k => res.filter(x => x.level === k).length;
   const key = (() => { try { return localStorage.getItem(GEMINI_KEY_STORE) || ''; } catch { return ''; } })();
-  const aiModel = (() => { try { return localStorage.getItem(GEMINI_MODEL_STORE) || GEMINI_MODELS[0][0]; } catch { return GEMINI_MODELS[0][0]; } })();
   $('#main').innerHTML = `
     <section class="ai-hero">
       <div>
@@ -621,19 +620,10 @@ function renderAI() {
     </div>
 
     <section class="box ai-box">
-      <h3>✨ 使用 Google Gemini 產生交班摘要 <small>需要 Gemini API 金鑰</small></h3>
-      <p class="warn-note">按下「開始分析」後，所選長者的照護資料會傳送給 Google 的 Gemini 處理。系統會以稱呼（如「陳奶奶」）代替全名，且不包含聯絡電話。金鑰只存在你這台裝置的瀏覽器，不會放進網站程式碼。使用實際長者資料前，請先確認符合機構的個資規範。</p>
-      <div class="form-row">
-        <label class="field"><span>分析對象</span>
-          <select id="aiTarget"><option value="all">全體長者</option>${db.residents.map(r => `<option value="${esc(r.id)}">${esc(r.name)}（${esc(r.room)}）</option>`).join('')}</select>
-        </label>
-        <label class="field"><span>模型</span>
-          <select id="aiModel">${GEMINI_MODELS.map(([v, l]) => `<option value="${v}"${v === aiModel ? ' selected' : ''}>${l}</option>`).join('')}</select>
-        </label>
-        <label class="field"><span>API 金鑰</span><input id="aiKey" type="password" autocomplete="off" placeholder="貼上你的 Gemini API 金鑰" value="${esc(key)}"></label>
+      <div class="ai-key-row">
+        <label class="field"><span>API 金鑰</span><input id="aiKey" type="password" autocomplete="off" placeholder="貼上 API 金鑰" value="${esc(key)}"></label>
+        <button class="btn btn-primary" data-action="ai-run" id="aiRun">開始分析</button>
       </div>
-      <label class="check"><input id="aiRemember" type="checkbox"${key ? ' checked' : ''}> 在這台裝置記住金鑰（只存在本機瀏覽器）</label>
-      <div class="form-actions"><button class="btn btn-primary" data-action="ai-run" id="aiRun">開始分析</button></div>
       <div id="aiOut" class="ai-out" hidden></div>
     </section>`;
 }
@@ -662,8 +652,7 @@ function miniMarkdown(md) {
 }
 
 const GEMINI_KEY_STORE = 'changqing-care:gemini-key';
-const GEMINI_MODEL_STORE = 'changqing-care:gemini-model';
-const GEMINI_MODELS = [['gemini-flash-latest', 'Gemini Flash（快速）'], ['gemini-pro-latest', 'Gemini Pro（較深入）']];
+const GEMINI_MODELS = [['gemini-flash-latest']];
 const AI_SYSTEM = '你是長照機構的資深護理顧問，協助照服員與護理師交班。請一律使用繁體中文，語氣溫和、條列清楚、可直接執行。你不做醫療診斷；遇到可能危急的狀況，要明確建議立即通報護理師或醫師。';
 
 // 呼叫 Gemini：先試 Gemini API（AI Studio 金鑰），若金鑰不被接受再試 Vertex AI 快速模式端點
@@ -690,36 +679,32 @@ async function callGemini(key, model, prompt) {
 
 async function runGemini() {
   const key = $('#aiKey').value.trim();
-  const model = $('#aiModel').value;
+  const model = GEMINI_MODELS[0][0];
   const out = $('#aiOut');
   const btn = $('#aiRun');
-  if (!key) { toast('請先輸入 Gemini API 金鑰'); return; }
-  try {
-    localStorage.setItem(GEMINI_MODEL_STORE, model);
-    if ($('#aiRemember').checked) localStorage.setItem(GEMINI_KEY_STORE, key);
-    else localStorage.removeItem(GEMINI_KEY_STORE);
-  } catch { /* 忽略 */ }
+  if (!key) { toast('請先輸入 API 金鑰'); return; }
+  try { localStorage.setItem(GEMINI_KEY_STORE, key); } catch { /* 忽略 */ }
   out.hidden = false;
-  out.innerHTML = '<p class="result-note">Gemini 正在分析，約需 10–60 秒…</p>';
+  out.innerHTML = '<p class="result-note">AI 正在分析，約需 10–60 秒…</p>';
   btn.disabled = true;
   try {
-    const prompt = `以下是今天長者的照護資料（JSON）。請整理成交班摘要，包含：\n1. 今日整體重點（三點以內）\n2. 需優先關注的長者：原因與具體照護建議\n3. 其他長者的簡短狀況\n4. 下一班需要追蹤的事項\n\n${JSON.stringify(aiPayload($('#aiTarget').value), null, 1)}`;
+    const prompt = `以下是今天長者的照護資料（JSON）。請整理成交班摘要，包含：\n1. 今日整體重點（三點以內）\n2. 需優先關注的長者：原因與具體照護建議\n3. 其他長者的簡短狀況\n4. 下一班需要追蹤的事項\n\n${JSON.stringify(aiPayload('all'), null, 1)}`;
     const data = await callGemini(key, model, prompt);
     const cand = data.candidates?.[0];
     const text = (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
     if (!text) {
       const why = data.promptFeedback?.blockReason || cand?.finishReason || '';
-      out.innerHTML = `<p class="warn-note">Gemini 沒有回傳內容${why ? `（${esc(why)}）` : ''}，請稍後再試或換一個模型。</p>`;
+      out.innerHTML = `<p class="warn-note">AI 沒有回傳內容${why ? `（${esc(why)}）` : ''}，請稍後再試。</p>`;
       return;
     }
-    out.innerHTML = `<div class="ai-text">${miniMarkdown(text)}</div><p class="result-note">由 ${esc(model)} 產生 · ${when(localDT())} · 僅供參考</p>`;
+    out.innerHTML = `<div class="ai-text">${miniMarkdown(text)}</div><p class="result-note">AI 產生 · ${when(localDT())} · 僅供參考</p>`;
   } catch (err) {
     const status = err?.status;
-    const msg = [400, 401, 403].includes(status) ? 'API 金鑰無效或沒有使用 Gemini 的權限，請確認金鑰後再試。'
-      : status === 404 ? '找不到這個模型，請換另一個模型再試。'
+    const msg = [400, 401, 403].includes(status) ? 'API 金鑰無效，請確認金鑰後再試。'
+      : status === 404 ? 'AI 服務暫時無法使用，請稍後再試。'
       : status === 429 ? '請求太頻繁或額度不足，請稍後再試。'
-      : status ? `Gemini 服務回傳錯誤（${status}）。` : '無法連線到 Gemini，請檢查網路連線。';
-    out.innerHTML = `<p class="warn-note">${esc(msg)}${err?.message ? `<br><small>${esc(err.message)}</small>` : ''}</p>`;
+      : status ? `AI 服務回傳錯誤（${status}）。` : '無法連線到 AI 服務，請檢查網路連線。';
+    out.innerHTML = `<p class="warn-note">${esc(msg)}</p>`;
   } finally {
     btn.disabled = false;
   }
