@@ -215,7 +215,7 @@ function save() {
 }
 
 let db = load();
-try { localStorage.removeItem('changqing-care:apikey'); } catch { /* 舊版 Claude 金鑰，已不使用 */ }
+try { ['changqing-care:apikey', 'changqing-care:gemini-key'].forEach(k => localStorage.removeItem(k)); } catch { /* 舊版 API 金鑰，已不使用 */ }
 if (!localStorage.getItem(STORE_KEY)) save();
 const ui = { view: 'residents', zone: 'all', query: '', selectedId: null, tab: 'health', mq: '', mzone: 'all', mday: 'today' };
 
@@ -594,7 +594,6 @@ const RISK = { high: { label: '高風險', tone: 'red' }, mid: { label: '中風�
 function renderAI() {
   const res = db.residents.map(assess).sort((a, b) => b.score - a.score);
   const n = k => res.filter(x => x.level === k).length;
-  const key = (() => { try { return localStorage.getItem(GEMINI_KEY_STORE) || ''; } catch { return ''; } })();
   $('#main').innerHTML = `
     <section class="ai-hero">
       <div>
@@ -605,6 +604,8 @@ function renderAI() {
         <span class="pill tone-red">高風險 ${n('high')}</span><span class="pill tone-amber">中風險 ${n('mid')}</span><span class="pill tone-green">低風險 ${n('low')}</span>
       </div>
     </section>
+
+    ${chatSection()}
 
     <h2 class="section-title">風險排序（本機分析，資料不會離開這台裝置）</h2>
     <div class="grid">
@@ -619,26 +620,7 @@ function renderAI() {
         </article>`).join('')}
     </div>
 
-    <section class="box ai-box">
-      <div class="ai-key-row">
-        <label class="field"><span>API 金鑰</span><input id="aiKey" type="password" autocomplete="off" placeholder="貼上 API 金鑰" value="${esc(key)}"></label>
-        <button class="btn btn-primary" data-action="ai-run" id="aiRun">開始分析</button>
-      </div>
-      <div id="aiOut" class="ai-out" hidden></div>
-    </section>`;
-}
-
-function aiPayload(target) {
-  const list = target === 'all' ? db.residents : db.residents.filter(r => r.id === target);
-  const today = dayStr();
-  return list.map(r => ({
-    稱呼: r.title, 年齡: age(r), 性別: r.gender, 房號: r.room, 狀態: STATUS[r.status].label,
-    病史: r.conditions, 過敏: r.allergies, 用藥: r.meds, 行動能力: r.mobility, 飲食: r.diet, 照護備註: r.note,
-    生命徵象: [...r.vitals].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5)
-      .map(v => ({ 時間: v.at, 血壓: v.sys !== '' ? `${v.sys}/${v.dia}` : '', 體溫: v.temp, 脈搏: v.pulse, 血氧: v.spo2, 血糖: v.sugar, 呼吸: v.resp })),
-    今日動線: r.moves.filter(m => m.at.startsWith(today)).sort((a, b) => a.at.localeCompare(b.at)).map(m => `${hhmm(m.at)} ${m.zone}${m.note ? `（${m.note}）` : ''}`),
-    系統風險評估: assess(r).findings.map(f => f.text),
-  }));
+    `;
 }
 
 // 簡易 Markdown 轉換（先跳脫 HTML 再加格式）
@@ -646,67 +628,167 @@ function miniMarkdown(md) {
   return esc(md).split('\n').map(line => {
     const l = line.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
     if (/^#{1,6}\s/.test(line)) return `<h4>${l.replace(/^#{1,6}\s/, '')}</h4>`;
-    if (/^\s*[-*]\s/.test(line)) return `<li>${l.replace(/^\s*[-*]\s/, '')}</li>`;
+    if (/^\s*([-*]|\d+[.、])\s*/.test(line)) return `<li>${l.replace(/^\s*[-*]\s*/, '')}</li>`;
     return l.trim() ? `<p>${l}</p>` : '';
   }).join('');
 }
 
-const GEMINI_KEY_STORE = 'changqing-care:gemini-key';
-const GEMINI_MODELS = [['gemini-flash-latest']];
-const AI_SYSTEM = '你是長照機構的資深護理顧問，協助照服員與護理師交班。請一律使用繁體中文，語氣溫和、條列清楚、可直接執行。你不做醫療診斷；遇到可能危急的狀況，要明確建議立即通報護理師或醫師。';
+/* ---------- AI 照護助理（在瀏覽器內執行的小型模型） ---------- */
+const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm';
+const CHAT_MODELS = [
+  { id: 'Qwen2.5-1.5B-Instruct', label: '標準模式（首次下載約 1 GB，回答較好）' },
+  { id: 'Qwen2.5-0.5B-Instruct', label: '輕量模式（首次下載約 400 MB，適合較舊的裝置）' },
+];
+const CHAT_MODEL_STORE = 'changqing-care:chat-model';
+const SUGGESTIONS = ['今天誰需要優先關注？', '幫我寫一份交班摘要', '有哪些長者有過敏？', '黃奶奶今天去過哪些地方？'];
+const chat = { status: 'idle', progress: 0, progressText: '', error: '', engine: null, busy: false, messages: [] };
 
-// 呼叫 Gemini：先試 Gemini API（AI Studio 金鑰），若金鑰不被接受再試 Vertex AI 快速模式端點
-async function callGemini(key, model, prompt) {
-  const body = JSON.stringify({
-    systemInstruction: { parts: [{ text: AI_SYSTEM }] },
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
-  });
-  const endpoints = [
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent`,
-  ];
-  let last;
-  for (const url of endpoints) {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) return data;
-    last = last || { status: res.status, message: data?.error?.message || '' }; // 顯示第一個端點（Gemini API）的錯誤
-    if (![400, 401, 403].includes(res.status)) break; // 只有金鑰類錯誤才改試另一個端點
-  }
-  throw last;
+function chatModelPref() {
+  try { return localStorage.getItem(CHAT_MODEL_STORE) || CHAT_MODELS[0].id; } catch { return CHAT_MODELS[0].id; }
 }
 
-async function runGemini() {
-  const key = $('#aiKey').value.trim();
-  const model = GEMINI_MODELS[0][0];
-  const out = $('#aiOut');
-  const btn = $('#aiRun');
-  if (!key) { toast('請先輸入 API 金鑰'); return; }
-  try { localStorage.setItem(GEMINI_KEY_STORE, key); } catch { /* 忽略 */ }
-  out.hidden = false;
-  out.innerHTML = '<p class="result-note">AI 正在分析，約需 10–60 秒…</p>';
-  btn.disabled = true;
+function chatBubbles() {
+  if (!chat.messages.length) {
+    return `<div class="msg ai"><div class="bubble"><p>您好！我是長青園的 AI 照護助理 👋 可以問我長者的狀況、過敏、今天去過哪裡，或請我整理交班摘要。</p></div></div>`;
+  }
+  return chat.messages.map(m => `<div class="msg ${m.role === 'user' ? 'me' : 'ai'}"><div class="bubble">${m.role === 'user' ? `<p>${esc(m.content)}</p>` : (miniMarkdown(m.content) || '<p class="typing">思考中…</p>')}</div></div>`).join('');
+}
+
+function chatStatusHtml() {
+  if (chat.status === 'ready') return '';
+  if (chat.status === 'loading') {
+    return `<div class="chat-status"><p>正在載入 AI 模型… 第一次需要下載，請保持網頁開啟。</p>
+      <div class="progress"><span style="width:${Math.round(chat.progress * 100)}%"></span></div>
+      <p class="result-note" id="chatProgressText">${esc(chat.progressText)}</p></div>`;
+  }
+  if (chat.status === 'unsupported') {
+    return `<div class="chat-status"><p class="warn-note">這個瀏覽器不支援 WebGPU，無法在本機執行 AI。請改用電腦版 Chrome 或 Edge（最新版）開啟本頁。</p></div>`;
+  }
+  const pref = chatModelPref();
+  return `<div class="chat-status">
+      ${chat.status === 'error' ? `<p class="warn-note">AI 載入失敗：${esc(chat.error)}</p>` : ''}
+      <p>AI 模型會直接在這台裝置上執行，長者資料不會傳到任何伺服器。第一次啟動需要下載模型，之後會快很多。</p>
+      <div class="chat-start">
+        <select id="chatModel" aria-label="AI 模型">${CHAT_MODELS.map(m => `<option value="${m.id}"${m.id === pref ? ' selected' : ''}>${m.label}</option>`).join('')}</select>
+        <button class="btn btn-primary" data-action="chat-start">啟動 AI 助理</button>
+      </div>
+    </div>`;
+}
+
+function chatSection() {
+  const ready = chat.status === 'ready';
+  return `<section class="box chat-box">
+      <h3>💬 AI 照護助理 <small>在本機執行 · 資料不會離開這台裝置</small></h3>
+      <div id="chatStatusArea">${chatStatusHtml()}</div>
+      <div class="chat-log" id="chatLog">${chatBubbles()}</div>
+      <div class="suggest">${SUGGESTIONS.map(q => `<button class="zone-chip" data-ask="${esc(q)}"${ready && !chat.busy ? '' : ' disabled'}>${esc(q)}</button>`).join('')}</div>
+      <form class="chat-input" data-form="chat">
+        <input name="q" autocomplete="off" placeholder="${ready ? '輸入問題，例如：張爺爺現在狀況如何？' : '請先啟動 AI 助理'}" aria-label="輸入問題"${ready ? '' : ' disabled'}>
+        ${chat.busy ? '<button type="button" class="btn btn-ghost" data-action="chat-stop">停止</button>' : `<button type="submit" class="btn btn-primary"${ready ? '' : ' disabled'}>送出</button>`}
+      </form>
+      <p class="legend">AI 回答僅供參考，可能有錯誤，不能取代醫護專業判斷。${chat.messages.length ? ' <button class="link-btn" data-action="chat-clear">清除對話</button>' : ''}</p>
+    </section>`;
+}
+
+function refreshChat() {
+  if (ui.view !== 'ai') return;
+  const box = document.querySelector('.chat-box');
+  if (!box) return;
+  const focused = document.activeElement?.name === 'q';
+  const draft = box.querySelector('[name="q"]')?.value || '';
+  box.outerHTML = chatSection();
+  const input = document.querySelector('.chat-box [name="q"]');
+  if (input) { input.value = draft; if (focused && !input.disabled) input.focus(); }
+  scrollChat();
+}
+const scrollChat = () => { const log = $('#chatLog'); if (log) log.scrollTop = log.scrollHeight; };
+
+async function startChat() {
+  const model = $('#chatModel')?.value || chatModelPref();
+  try { localStorage.setItem(CHAT_MODEL_STORE, model); } catch { /* 忽略 */ }
+  let adapter = null;
+  try { adapter = navigator.gpu ? await navigator.gpu.requestAdapter() : null; } catch { adapter = null; }
+  if (!adapter) { chat.status = 'unsupported'; refreshChat(); return; }
+  const modelId = `${model}-${adapter.features.has('shader-f16') ? 'q4f16_1' : 'q4f32_1'}-MLC`;
+  Object.assign(chat, { status: 'loading', progress: 0, progressText: '準備中…', error: '' });
+  refreshChat();
   try {
-    const prompt = `以下是今天長者的照護資料（JSON）。請整理成交班摘要，包含：\n1. 今日整體重點（三點以內）\n2. 需優先關注的長者：原因與具體照護建議\n3. 其他長者的簡短狀況\n4. 下一班需要追蹤的事項\n\n${JSON.stringify(aiPayload('all'), null, 1)}`;
-    const data = await callGemini(key, model, prompt);
-    const cand = data.candidates?.[0];
-    const text = (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
-    if (!text) {
-      const why = data.promptFeedback?.blockReason || cand?.finishReason || '';
-      out.innerHTML = `<p class="warn-note">AI 沒有回傳內容${why ? `（${esc(why)}）` : ''}，請稍後再試。</p>`;
-      return;
-    }
-    out.innerHTML = `<div class="ai-text">${miniMarkdown(text)}</div><p class="result-note">AI 產生 · ${when(localDT())} · 僅供參考</p>`;
+    const webllm = await import(WEBLLM_URL);
+    chat.engine = await webllm.CreateMLCEngine(modelId, {
+      initProgressCallback: p => {
+        chat.progress = p.progress || 0;
+        chat.progressText = `${Math.round(chat.progress * 100)}%`;
+        const bar = document.querySelector('.chat-box .progress span');
+        if (bar) bar.style.width = `${Math.round(chat.progress * 100)}%`;
+        const txt = $('#chatProgressText');
+        if (txt) txt.textContent = chat.progressText;
+      },
+    }, { context_window_size: 8192 }); // 預設 4096 放不下全部長者資料加上對話
+    chat.status = 'ready';
+    toast('AI 助理已就緒');
   } catch (err) {
-    const status = err?.status;
-    const msg = [400, 401, 403].includes(status) ? 'API 金鑰無效，請確認金鑰後再試。'
-      : status === 404 ? 'AI 服務暫時無法使用，請稍後再試。'
-      : status === 429 ? '請求太頻繁或額度不足，請稍後再試。'
-      : status ? `AI 服務回傳錯誤（${status}）。` : '無法連線到 AI 服務，請檢查網路連線。';
-    out.innerHTML = `<p class="warn-note">${esc(msg)}</p>`;
+    chat.status = 'error';
+    chat.error = /memory|device lost|out of/i.test(String(err?.message)) ? '裝置記憶體不足，請改用輕量模式。' : '下載或初始化時發生問題，請檢查網路後再試一次。';
+  }
+  refreshChat();
+}
+
+// 提供給 AI 的長者資料摘要（每位一行，控制長度以符合小模型的上下文）
+function chatContext() {
+  const today = dayStr();
+  return db.residents.map(r => {
+    const v = latest(r.vitals);
+    const mv = currentMove(r);
+    const a = assess(r);
+    const route = r.moves.filter(m => m.at.startsWith(today)).sort((x, y) => x.at.localeCompare(y.at)).map(m => `${hhmm(m.at)}${m.zone}`).join('→');
+    return [
+      `【${r.name}（${r.title}）】${age(r)}歲${r.gender}，房號${r.room}，狀態：${STATUS[r.status].label}`,
+      `目前位置：${mv ? `${mv.zone}（${hhmm(mv.at)}起）` : '未記錄'}`,
+      `病史：${r.conditions.join('、') || '無'}；過敏：${r.allergies.join('、') || '無'}；用藥：${r.meds.join('、') || '無'}`,
+      `行動：${r.mobility || '—'}；飲食：${r.diet || '—'}${r.note ? `；備註：${r.note}` : ''}`,
+      v ? `最新生命徵象（${when(v.at)}）：血壓${v.sys || '—'}/${v.dia || '—'}，體溫${v.temp || '—'}，脈搏${v.pulse || '—'}，血氧${v.spo2 || '—'}%${v.sugar !== '' ? `，血糖${v.sugar}` : ''}` : '尚無生命徵象紀錄',
+      `今日動線：${route || '無紀錄'}`,
+      `系統風險：${RISK[a.level].label}${a.findings.length ? `（${a.findings.slice(0, 3).map(f => f.text).join('；')}）` : ''}`,
+    ].join('\n');
+  }).join('\n\n');
+}
+
+async function askChat(question) {
+  const q = question.trim();
+  if (!q || chat.status !== 'ready' || chat.busy) return;
+  const now = new Date();
+  const system = `你是「長青園」長照機構的 AI 照護助理，協助照服員與護理師。
+規則：
+- 只能根據下方「長者資料」回答；資料中沒有的內容就說「資料中沒有這項紀錄」，不要編造。
+- 一律使用繁體中文，回答簡短、條列清楚。
+- 你不做醫療診斷；遇到可能危急的狀況（例如血氧低於 90%、意識改變、胸痛、跌倒），要建議立即通報護理師。
+現在時間：${now.getMonth() + 1}月${now.getDate()}日 ${hhmm(now)}
+
+長者資料：
+${chatContext()}`;
+  // 只帶最近兩輪對話，並截短過長的回答，避免超出模型可讀的長度
+  const history = chat.messages.slice(-4).map(m => ({ role: m.role, content: m.content.slice(0, 500) }));
+  chat.messages.push({ role: 'user', content: q }, { role: 'assistant', content: '' });
+  chat.busy = true;
+  refreshChat();
+  const reply = chat.messages[chat.messages.length - 1];
+  try {
+    const stream = await chat.engine.chat.completions.create({
+      messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: q }],
+      stream: true, temperature: 0.3, max_tokens: 700,
+    });
+    for await (const chunk of stream) {
+      reply.content += chunk.choices[0]?.delta?.content || '';
+      const bubble = document.querySelector('#chatLog .msg:last-child .bubble');
+      if (bubble) { bubble.innerHTML = miniMarkdown(reply.content); scrollChat(); }
+    }
+  } catch (err) {
+    const tooLong = /context|token|length/i.test(String(err?.message));
+    reply.content += reply.content ? '\n（回答中斷）' : tooLong ? '對話太長了，請按「清除對話」後再問一次。' : '抱歉，AI 回答時發生問題，請再試一次。';
   } finally {
-    btn.disabled = false;
+    if (!reply.content.trim()) reply.content = '（沒有產生回答）';
+    chat.busy = false;
+    refreshChat();
   }
 }
 
@@ -825,6 +907,8 @@ document.addEventListener('click', e => {
   if (view) { ui.view = view.dataset.view; render(); return; }
   const zone = t.closest('[data-zone]');
   if (zone) { ui.zone = zone.dataset.zone; renderResidents(); return; }
+  const ask = t.closest('[data-ask]');
+  if (ask) { askChat(ask.dataset.ask); return; }
   const openEl = t.closest('[data-open]');
   if (openEl) { open(openEl.dataset.open, openEl.dataset.tab); return; }
   const tabBtn = t.closest('[data-tab-btn]');
@@ -844,7 +928,9 @@ document.addEventListener('click', e => {
   else if (act === 'add') openEditor();
   else if (act === 'edit') openEditor(ui.selectedId);
   else if (act === 'editor-close') $('#editor').close();
-  else if (act === 'ai-run') runGemini();
+  else if (act === 'chat-start') startChat();
+  else if (act === 'chat-stop') chat.engine?.interruptGenerate();
+  else if (act === 'chat-clear') { chat.messages = []; chat.engine?.resetChat(); refreshChat(); }
   else if (act === 'notice-del' && confirm('刪除這則公告？')) {
     const id = t.closest('[data-action]').dataset.id;
     db.notices = db.notices.filter(n => n.id !== id);
@@ -902,6 +988,7 @@ document.addEventListener('submit', e => {
   e.preventDefault();
   const form = e.target;
   if (form.dataset.form === 'resident') { saveResident(form); return; }
+  if (form.dataset.form === 'chat') { const q = form.q.value; form.q.value = ''; askChat(q); return; }
   if (form.dataset.form === 'notice') {
     const n = Object.fromEntries(new FormData(form));
     if (!n.text.trim()) return;
